@@ -13,7 +13,7 @@ Complete guide to setting up and running the GlobalClass prototype locally.
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt install -y nodejs
 ```
-
+`
 **macOS:**
 ```bash
 brew install node@18
