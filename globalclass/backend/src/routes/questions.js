@@ -1,7 +1,7 @@
 // Q&A Routes — owned by: Aayush
-const express = require('express');
-const { authenticate } = require('../middleware/auth');
-const qaService = require('../services/qaService');
+import express from 'express';
+import { authenticate } from '../middleware/auth.js';
+import qaService from '../services/qaService.js';
 
 const router = express.Router({ mergeParams: true });
 
@@ -49,4 +49,4 @@ router.patch('/:id/questions/:qid/answer', authenticate, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

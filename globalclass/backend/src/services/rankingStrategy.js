@@ -18,9 +18,10 @@ const strategies = {
   default: byVotesThenRecency,
 };
 
-function rank(questions, strategy = 'default') {
+export function rank(questions, strategy = 'default') {
   const fn = strategies[strategy] || strategies.default;
   return fn(questions);
 }
 
-module.exports = { rank };
+const rankingStrategy = { rank };
+export default rankingStrategy;

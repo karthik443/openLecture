@@ -1,17 +1,32 @@
-require('dotenv').config();
-const http = require('http');
-const app = require('./app');
-const { initQAWebSocket } = require('./websocket/qaHandler');
-const { initStreamingWebSocket } = require('./websocket/streamHandler');
+import 'dotenv/config';
+import http from 'http';
+import app from './app.js';
+import { initQAWebSocket, qaWss } from './websocket/qaHandler.js';
+import { initStreamingWebSocket, streamWss } from './websocket/streamHandler.js';
 
 const PORT = process.env.PORT || 4000;
 const server = http.createServer(app);
 
-// Q&A WebSocket — owned by: Aayush
-initQAWebSocket(server);
+// Initialize WebSocket handlers (registers event listeners on each WSS)
+initQAWebSocket();
+initStreamingWebSocket();
 
-// Streaming signaling WebSocket — owned by: Team (streaming)
-initStreamingWebSocket(server);
+// Manual upgrade routing — routes incoming WS connections to the correct WSS
+server.on('upgrade', (request, socket, head) => {
+  const pathname = request.url.split('?')[0];
+
+  if (pathname === '/ws/qa') {
+    qaWss.handleUpgrade(request, socket, head, (ws) => {
+      qaWss.emit('connection', ws, request);
+    });
+  } else if (pathname === '/ws/stream') {
+    streamWss.handleUpgrade(request, socket, head, (ws) => {
+      streamWss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
 server.listen(PORT, () => {
   console.log(`GlobalClass server running on port ${PORT}`);

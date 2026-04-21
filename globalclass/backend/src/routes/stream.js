@@ -1,7 +1,7 @@
 // Streaming Routes — owned by: Team (streaming)
-const express = require('express');
-const { authenticate, requireRole } = require('../middleware/auth');
-const streamService = require('../services/streamService');
+import express from 'express';
+import { authenticate, requireRole } from '../middleware/auth.js';
+import streamService from '../services/streamService.js';
 
 const router = express.Router();
 
@@ -38,4 +38,4 @@ router.post('/end/:lectureId', authenticate, requireRole('instructor'), async (r
   }
 });
 
-module.exports = router;
+export default router;

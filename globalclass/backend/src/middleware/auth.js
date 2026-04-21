@@ -1,6 +1,6 @@
-const jwt = require('jsonwebtoken');
+import jwt from 'jsonwebtoken';
 
-function authenticate(req, res, next) {
+export function authenticate(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return res.status(401).json({ error: 'No token provided' });
 
@@ -13,7 +13,7 @@ function authenticate(req, res, next) {
   }
 }
 
-function requireRole(...roles) {
+export function requireRole(...roles) {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ error: 'Forbidden' });
@@ -21,5 +21,3 @@ function requireRole(...roles) {
     next();
   };
 }
-
-module.exports = { authenticate, requireRole };

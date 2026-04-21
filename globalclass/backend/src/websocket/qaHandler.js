@@ -1,17 +1,18 @@
 // Q&A WebSocket Handler — owned by: Aayush
 // Observer Pattern: broadcasts ranked question updates to all clients in a lecture room
 
-const { WebSocketServer } = require('ws');
-const jwt = require('jsonwebtoken');
-const qaService = require('../services/qaService');
+import { WebSocketServer } from 'ws';
+import jwt from 'jsonwebtoken';
+import qaService from '../services/qaService.js';
 
 // lectureId -> Set of WebSocket clients
 const rooms = new Map();
 
-function initQAWebSocket(server) {
-  const wss = new WebSocketServer({ server, path: '/ws/qa' });
+// Export the WSS so index.js can route upgrades to it
+export const qaWss = new WebSocketServer({ noServer: true });
 
-  wss.on('connection', (ws, req) => {
+export function initQAWebSocket() {
+  qaWss.on('connection', (ws, req) => {
     const params = new URLSearchParams(req.url.replace('/ws/qa?', ''));
     const lectureId = params.get('lectureId');
     const token = params.get('token');
@@ -59,12 +60,10 @@ function initQAWebSocket(server) {
   console.log('Q&A WebSocket initialized at /ws/qa');
 }
 
-async function broadcastQuestions(lectureId) {
+export async function broadcastQuestions(lectureId) {
   const questions = await qaService.getRankedQuestions(lectureId);
   const payload = JSON.stringify({ type: 'QUESTIONS_UPDATE', questions });
   rooms.get(lectureId)?.forEach((client) => {
     if (client.readyState === 1) client.send(payload);
   });
 }
-
-module.exports = { initQAWebSocket };
