@@ -1,6 +1,6 @@
-const express = require('express');
-const pool = require('../config/db');
-const { authenticate, requireRole } = require('../middleware/auth');
+import express from 'express';
+import pool from '../config/db.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -76,4 +76,4 @@ router.post('/:id/enroll', authenticate, requireRole('student'), async (req, res
   }
 });
 
-module.exports = router;
+export default router;

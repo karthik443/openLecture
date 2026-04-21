@@ -1,11 +1,11 @@
 // Q&A Service — owned by: Aayush
-const pool = require('../config/db');
-const redis = require('../config/redis');
-const { rank } = require('./rankingStrategy');
+import pool from '../config/db.js';
+import redis from '../config/redis.js';
+import { rank } from './rankingStrategy.js';
 
 const CACHE_TTL = 10; // seconds
 
-async function getRankedQuestions(lectureId) {
+export async function getRankedQuestions(lectureId) {
   const cacheKey = `questions:${lectureId}`;
   const cached = await redis.get(cacheKey);
   if (cached) return JSON.parse(cached);
@@ -25,7 +25,7 @@ async function getRankedQuestions(lectureId) {
   return ranked;
 }
 
-async function submitQuestion(lectureId, studentId, content) {
+export async function submitQuestion(lectureId, studentId, content) {
   const result = await pool.query(
     `INSERT INTO questions (lecture_id, student_id, content)
      VALUES ($1, $2, $3) RETURNING *`,
@@ -35,7 +35,7 @@ async function submitQuestion(lectureId, studentId, content) {
   return { ...result.rows[0], vote_count: 0 };
 }
 
-async function voteQuestion(questionId, studentId) {
+export async function voteQuestion(questionId, studentId) {
   try {
     await pool.query(
       `INSERT INTO votes (question_id, student_id) VALUES ($1, $2)`,
@@ -53,7 +53,7 @@ async function voteQuestion(questionId, studentId) {
   }
 }
 
-async function markAnswered(questionId) {
+export async function markAnswered(questionId) {
   const result = await pool.query(
     `UPDATE questions SET is_answered = TRUE WHERE id = $1 RETURNING *`,
     [questionId]
@@ -62,4 +62,5 @@ async function markAnswered(questionId) {
   return result.rows[0];
 }
 
-module.exports = { getRankedQuestions, submitQuestion, voteQuestion, markAnswered };
+const qaService = { getRankedQuestions, submitQuestion, voteQuestion, markAnswered };
+export default qaService;

@@ -8,6 +8,7 @@
     "dev": "nodemon src/index.js",
     "migrate": "node src/db/migrate.js"
   },
+  "type": "module",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

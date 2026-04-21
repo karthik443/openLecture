@@ -1,10 +1,10 @@
-const express = require('express');
-const cors = require('cors');
+import express from 'express';
+import cors from 'cors';
 
-const authRoutes = require('./routes/auth');
-const lectureRoutes = require('./routes/lectures');
-const questionRoutes = require('./routes/questions');
-const streamRoutes = require('./routes/stream');
+import authRoutes from './routes/auth.js';
+import lectureRoutes from './routes/lectures.js';
+import questionRoutes from './routes/questions.js';
+import streamRoutes from './routes/stream.js';
 
 const app = express();
 
@@ -18,4 +18,4 @@ app.use('/api/stream', streamRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-module.exports = app;
+export default app;
