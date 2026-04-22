@@ -5,9 +5,13 @@ import { rank } from './rankingStrategy.js';
 
 const CACHE_TTL = 10; // seconds
 
-export async function getRankedQuestions(lectureId) {
-  const cacheKey = `questions:${lectureId}`;
-  const cached = await redis.get(cacheKey);
+function cacheKey(lectureId) {
+  return `questions:${lectureId}`;
+}
+
+export async function getRankedQuestions(lectureId, strategy = 'default') {
+  const key = cacheKey(lectureId);
+  const cached = await redis.get(key);
   if (cached) return JSON.parse(cached);
 
   const result = await pool.query(
@@ -20,8 +24,8 @@ export async function getRankedQuestions(lectureId) {
     [lectureId]
   );
 
-  const ranked = rank(result.rows);
-  await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(ranked));
+  const ranked = rank(result.rows, strategy);
+  await redis.setEx(key, CACHE_TTL, JSON.stringify(ranked));
   return ranked;
 }
 
@@ -31,7 +35,7 @@ export async function submitQuestion(lectureId, studentId, content) {
      VALUES ($1, $2, $3) RETURNING *`,
     [lectureId, studentId, content]
   );
-  await redis.del(`questions:${lectureId}`);
+  await redis.del(cacheKey(lectureId));
   return { ...result.rows[0], vote_count: 0 };
 }
 
@@ -45,7 +49,7 @@ export async function voteQuestion(questionId, studentId) {
       `SELECT lecture_id FROM questions WHERE id = $1`,
       [questionId]
     );
-    await redis.del(`questions:${q.rows[0].lecture_id}`);
+    await redis.del(cacheKey(q.rows[0].lecture_id));
     return { message: 'Vote recorded' };
   } catch (err) {
     if (err.code === '23505') throw new Error('Already voted');
@@ -58,9 +62,13 @@ export async function markAnswered(questionId) {
     `UPDATE questions SET is_answered = TRUE WHERE id = $1 RETURNING *`,
     [questionId]
   );
-  await redis.del(`questions:${result.rows[0].lecture_id}`);
+  await redis.del(cacheKey(result.rows[0].lecture_id));
   return result.rows[0];
 }
 
-const qaService = { getRankedQuestions, submitQuestion, voteQuestion, markAnswered };
+export async function invalidateCache(lectureId) {
+  await redis.del(cacheKey(lectureId));
+}
+
+const qaService = { getRankedQuestions, submitQuestion, voteQuestion, markAnswered, invalidateCache };
 export default qaService;

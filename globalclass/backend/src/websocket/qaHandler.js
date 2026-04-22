@@ -8,11 +8,14 @@ import qaService from '../services/qaService.js';
 // lectureId -> Set of WebSocket clients
 const rooms = new Map();
 
+// lectureId -> active ranking strategy ('default' | 'votes' | 'recency')
+const roomStrategies = new Map();
+
 // Export the WSS so index.js can route upgrades to it
 export const qaWss = new WebSocketServer({ noServer: true });
 
 export function initQAWebSocket() {
-  qaWss.on('connection', (ws, req) => {
+  qaWss.on('connection', async (ws, req) => {
     const params = new URLSearchParams(req.url.replace('/ws/qa?', ''));
     const lectureId = params.get('lectureId');
     const token = params.get('token');
@@ -29,6 +32,15 @@ export function initQAWebSocket() {
     rooms.get(lectureId).add(ws);
     ws.lectureId = lectureId;
 
+    // Send current questions immediately so late joiners see existing state
+    try {
+      const strategy = roomStrategies.get(lectureId) || 'default';
+      const questions = await qaService.getRankedQuestions(lectureId, strategy);
+      ws.send(JSON.stringify({ type: 'QUESTIONS_UPDATE', questions, strategy }));
+    } catch (err) {
+      ws.send(JSON.stringify({ type: 'ERROR', message: err.message }));
+    }
+
     ws.on('message', async (raw) => {
       try {
         const msg = JSON.parse(raw);
@@ -44,7 +56,27 @@ export function initQAWebSocket() {
         }
 
         if (msg.type === 'MARK_ANSWERED') {
+          if (ws.user.role !== 'instructor') {
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Only instructors can mark questions answered' }));
+            return;
+          }
           await qaService.markAnswered(msg.questionId);
+          await broadcastQuestions(lectureId);
+        }
+
+        if (msg.type === 'SET_STRATEGY') {
+          if (ws.user.role !== 'instructor') {
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Only instructors can change ranking strategy' }));
+            return;
+          }
+          const valid = ['default', 'votes', 'recency'];
+          if (!valid.includes(msg.strategy)) {
+            ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid strategy' }));
+            return;
+          }
+          roomStrategies.set(lectureId, msg.strategy);
+          // Bust cache so next broadcast re-ranks with new strategy
+          await qaService.invalidateCache(lectureId);
           await broadcastQuestions(lectureId);
         }
       } catch (err) {
@@ -61,8 +93,9 @@ export function initQAWebSocket() {
 }
 
 export async function broadcastQuestions(lectureId) {
-  const questions = await qaService.getRankedQuestions(lectureId);
-  const payload = JSON.stringify({ type: 'QUESTIONS_UPDATE', questions });
+  const strategy = roomStrategies.get(lectureId) || 'default';
+  const questions = await qaService.getRankedQuestions(lectureId, strategy);
+  const payload = JSON.stringify({ type: 'QUESTIONS_UPDATE', questions, strategy });
   rooms.get(lectureId)?.forEach((client) => {
     if (client.readyState === 1) client.send(payload);
   });

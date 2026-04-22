@@ -2,6 +2,8 @@
 
 Complete guide to setting up and running the GlobalClass prototype locally.
 
+> **Recommended:** See [SETUP.md](SETUP.md) for the quickest path using Docker for PostgreSQL and Redis — no native installs needed for the database or cache.
+
 ---
 
 ## Prerequisites — Software to Install
