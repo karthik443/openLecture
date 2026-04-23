@@ -1,4 +1,4 @@
-// Q&A WebSocket Handler — owned by: Aayush
+// Q&A WebSocket Handler
 // Observer Pattern: broadcasts ranked question updates to all clients in a lecture room
 
 import { WebSocketServer } from 'ws';
@@ -11,7 +11,6 @@ const rooms = new Map();
 // lectureId -> active ranking strategy ('default' | 'votes' | 'recency')
 const roomStrategies = new Map();
 
-// Export the WSS so index.js can route upgrades to it
 export const qaWss = new WebSocketServer({ noServer: true });
 
 export function initQAWebSocket() {
@@ -27,12 +26,11 @@ export function initQAWebSocket() {
       return;
     }
 
-    // Join lecture room
     if (!rooms.has(lectureId)) rooms.set(lectureId, new Set());
     rooms.get(lectureId).add(ws);
     ws.lectureId = lectureId;
 
-    // Send current questions immediately so late joiners see existing state
+    // Push current state immediately so late joiners see existing questions
     try {
       const strategy = roomStrategies.get(lectureId) || 'default';
       const questions = await qaService.getRankedQuestions(lectureId, strategy);
@@ -51,7 +49,7 @@ export function initQAWebSocket() {
         }
 
         if (msg.type === 'VOTE') {
-          await qaService.voteQuestion(msg.questionId, ws.user.id);
+          await qaService.voteQuestion(msg.questionId, ws.user.id, lectureId);
           await broadcastQuestions(lectureId);
         }
 
@@ -60,7 +58,7 @@ export function initQAWebSocket() {
             ws.send(JSON.stringify({ type: 'ERROR', message: 'Only instructors can mark questions answered' }));
             return;
           }
-          await qaService.markAnswered(msg.questionId);
+          await qaService.markAnswered(msg.questionId, lectureId);
           await broadcastQuestions(lectureId);
         }
 
@@ -75,8 +73,6 @@ export function initQAWebSocket() {
             return;
           }
           roomStrategies.set(lectureId, msg.strategy);
-          // Bust cache so next broadcast re-ranks with new strategy
-          await qaService.invalidateCache(lectureId);
           await broadcastQuestions(lectureId);
         }
       } catch (err) {
@@ -84,10 +80,24 @@ export function initQAWebSocket() {
       }
     });
 
-    ws.on('close', () => {
-      rooms.get(lectureId)?.delete(ws);
+    ws.on('close', async () => {
+      const room = rooms.get(lectureId);
+      room?.delete(ws);
+      // When last client leaves, do a final flush and clean up Redis buffer
+      if (room?.size === 0) {
+        rooms.delete(lectureId);
+        roomStrategies.delete(lectureId);
+        await qaService.finalFlushAndClean(lectureId);
+      }
     });
   });
+
+  // Flush all active lecture buffers to PostgreSQL every 5 seconds (NFR2 durability)
+  setInterval(async () => {
+    for (const [lectureId] of rooms) {
+      await qaService.flushToDB(lectureId);
+    }
+  }, 5000);
 
   console.log('Q&A WebSocket initialized at /ws/qa');
 }

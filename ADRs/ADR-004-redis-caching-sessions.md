@@ -63,3 +63,23 @@ Additionally, **PgBouncer** (connection pooler) will be deployed in front of Pos
 - **Cache invalidation complexity:** Stale data in Redis can cause inconsistencies — for example, a cached course listing showing a lecture that was just cancelled. Explicit cache invalidation logic must be implemented and tested carefully, especially for time-sensitive lecture data.
 - **Additional infrastructure:** Redis is an additional service to deploy, configure, monitor, and back up. In a production environment, Redis Sentinel or Redis Cluster is needed for full fault tolerance.
 - **Memory cost:** All cached data and session state lives in RAM. At 10,000 active sessions and large course catalogs, Redis memory usage must be monitored and bounded with appropriate eviction policies (e.g., `allkeys-lru`).
+
+---
+
+## Prototype Implementation
+
+The prototype fully implements the Redis write buffer pattern described in this ADR.
+
+**Write path:**
+- `submitQuestion` generates a UUID on the application side and writes the question as a JSON entry into a Redis hash (`qa:live:q:<lectureId>`). PostgreSQL is not touched at write time.
+- `voteQuestion` uses Redis `HSETNX` on a voted-tracking hash (`qa:live:voted:<lectureId>`) for atomic duplicate detection, and `HINCRBY` on a vote-count hash (`qa:live:vc:<lectureId>`) for a race-condition-free increment. Neither operation hits PostgreSQL.
+
+**Read path:**
+- `getRankedQuestions` reads directly from the Redis live buffer (`qa:live:q` + `qa:live:vc`) for active lectures. PostgreSQL is only consulted as a fallback for ended lectures where the Redis buffer has been cleaned up.
+
+**Flush mechanism:**
+- A `setInterval` in `qaHandler.js` fires every 5 seconds and calls `flushToDB(lectureId)` for all active lecture rooms. This upserts all buffered questions and votes into PostgreSQL using `INSERT … ON CONFLICT DO UPDATE/NOTHING`.
+- When the last WebSocket client disconnects from a lecture room, `finalFlushAndClean(lectureId)` performs a final flush and deletes all three Redis buffer keys, ensuring complete durability before the in-memory state is cleared.
+
+**Known limitation:**
+The final flush is triggered by the last client disconnecting, not by an explicit "lecture ended" event. In production, a Kafka consumer on the `lecture.lifecycle` topic (ADR-003) would trigger the final flush reliably regardless of client connection state. This integration is outside prototype scope.

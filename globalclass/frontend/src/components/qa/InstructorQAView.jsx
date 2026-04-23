@@ -1,17 +1,21 @@
-// Q&A — Instructor View — owned by: Aayush
+// Q&A — Instructor View
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import { useQAWebSocket } from '../../hooks/useWebSocket';
+import './qa.css';
 
 const STRATEGY_LABELS = {
-  default: 'Votes + Recency (Default)',
-  votes: 'Most Voted First',
+  default: 'Votes + Recency',
+  votes: 'Most Voted',
   recency: 'Newest First',
 };
+
+const TABS = ['all', 'unanswered', 'answered'];
 
 export default function InstructorQAView({ lectureId, token }) {
   const [questions, setQuestions] = useState([]);
   const [strategy, setStrategy] = useState('default');
+  const [tab, setTab] = useState('unanswered');
 
   const { send } = useQAWebSocket(lectureId, token, (msg) => {
     if (msg.type === 'QUESTIONS_UPDATE') {
@@ -30,51 +34,90 @@ export default function InstructorQAView({ lectureId, token }) {
     send({ type: 'SET_STRATEGY', strategy: selected });
   }
 
-  const unanswered = questions.filter(q => !q.is_answered);
+  const filtered = questions.filter(q => {
+    if (tab === 'unanswered') return !q.is_answered;
+    if (tab === 'answered')   return q.is_answered;
+    return true;
+  });
+
+  const unansweredCount = questions.filter(q => !q.is_answered).length;
 
   return (
-    <div>
-      {/* Ranking strategy selector */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <label htmlFor="strategy-select" style={{ fontSize: 13, color: '#555', whiteSpace: 'nowrap' }}>
-          Rank by:
-        </label>
-        <select
-          id="strategy-select"
-          value={strategy}
-          onChange={changeStrategy}
-          style={{
-            fontSize: 13, padding: '4px 8px', borderRadius: 4,
-            border: '1px solid #ccc', cursor: 'pointer',
-          }}
-        >
-          {Object.entries(STRATEGY_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
-          ))}
-        </select>
+    <div className="qa-panel">
+      <div className="qa-panel-header">
+        <h3 className="qa-panel-title">Q&amp;A</h3>
+        <span className="qa-live-badge">
+          <span className="qa-live-dot" />{'Live'}
+        </span>
       </div>
 
-      <p style={{ color: '#666', fontSize: 13 }}>{unanswered.length} unanswered question(s)</p>
-
-      {questions.map(q => (
-        <div key={q.id} style={{
-          padding: 12,
-          marginBottom: 8,
-          border: `1px solid ${q.is_answered ? '#c3e6cb' : '#eee'}`,
-          borderRadius: 6,
-          background: q.is_answered ? '#f0fff4' : '#fff',
-        }}>
-          <p style={{ margin: '0 0 6px', fontWeight: 500 }}>{q.content}</p>
-          <span style={{ fontSize: 12, color: '#666' }}>▲ {q.vote_count} votes</span>
-          {!q.is_answered && (
-            <button onClick={() => markAnswered(q.id)} style={{ marginLeft: 12, fontSize: 12 }}>
-              Mark Answered
-            </button>
-          )}
-          {q.is_answered && <span style={{ marginLeft: 8, color: 'green', fontSize: 12 }}>✓ Answered</span>}
+      <div className="qa-instructor-toolbar">
+        <div className="qa-strategy-group">
+          <label htmlFor="strategy-select" className="qa-strategy-label">Rank:</label>
+          <select
+            id="strategy-select"
+            value={strategy}
+            onChange={changeStrategy}
+            className="qa-strategy-select"
+          >
+            {Object.entries(STRATEGY_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
         </div>
-      ))}
-      {questions.length === 0 && <p style={{ color: '#888' }}>No questions yet.</p>}
+        <span className="qa-stats-badge">
+          {unansweredCount} unanswered
+        </span>
+      </div>
+
+      <div className="qa-tabs">
+        {TABS.map(t => (
+          <button
+            key={t}
+            className={`qa-tab${tab === t ? ' active' : ''}`}
+            onClick={() => setTab(t)}
+          >
+            {t.charAt(0).toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      <div className="qa-list">
+        {filtered.length === 0 ? (
+          <div className="qa-empty">
+            <div className="qa-empty-icon">{tab === 'answered' ? '✅' : '💬'}</div>
+            {tab === 'answered' ? 'No answered questions yet.' : 'No questions yet.'}
+          </div>
+        ) : (
+          filtered.map(q => (
+            <div key={q.id} className={`qa-card${q.is_answered ? ' is-answered' : ''}`}>
+              <button
+                className="qa-vote-btn"
+                style={{ cursor: 'default' }}
+                title={`${q.vote_count} vote${q.vote_count === 1 ? '' : 's'}`}
+              >
+                <span className="qa-vote-arrow">▲</span>
+                <span className="qa-vote-count">{q.vote_count}</span>
+              </button>
+              <div className="qa-card-body">
+                <p className="qa-card-content">{q.content}</p>
+                <div className="qa-card-meta">
+                  {q.is_answered ? (
+                    <span className="qa-answered-badge">✓ Answered</span>
+                  ) : (
+                    <button
+                      className="qa-mark-btn"
+                      onClick={() => markAnswered(q.id)}
+                    >
+                      ✓ Mark answered
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }

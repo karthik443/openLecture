@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS enrollments (
   UNIQUE(student_id, lecture_id)
 );
 
--- Q&A Tables — owned by: Aayush
+-- Q&A Tables
 CREATE TABLE IF NOT EXISTS questions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   lecture_id UUID REFERENCES lectures(id) ON DELETE CASCADE,

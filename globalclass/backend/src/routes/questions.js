@@ -1,4 +1,4 @@
-// Q&A Routes — owned by: Aayush
+// Q&A Routes
 import express from 'express';
 import { authenticate } from '../middleware/auth.js';
 import qaService from '../services/qaService.js';
@@ -32,7 +32,7 @@ router.post('/:id/questions', authenticate, async (req, res) => {
 // POST /api/lectures/:id/questions/:qid/vote — upvote a question
 router.post('/:id/questions/:qid/vote', authenticate, async (req, res) => {
   try {
-    const result = await qaService.voteQuestion(req.params.qid, req.user.id);
+    const result = await qaService.voteQuestion(req.params.qid, req.user.id, req.params.id);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -42,7 +42,7 @@ router.post('/:id/questions/:qid/vote', authenticate, async (req, res) => {
 // PATCH /api/lectures/:id/questions/:qid/answer — mark as answered (instructor)
 router.patch('/:id/questions/:qid/answer', authenticate, async (req, res) => {
   try {
-    const result = await qaService.markAnswered(req.params.qid);
+    const result = await qaService.markAnswered(req.params.qid, req.params.id);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
