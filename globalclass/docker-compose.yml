@@ -1,0 +1,110 @@
+# GlobalClass — Docker Compose (Microservices Architecture)
+#
+# Services:
+#   postgres         — Shared database (lecture schema, users, Q&A)
+#   redis            — Q&A write buffer + Pub/Sub broadcast bus
+#   core-api         — Service 1: Auth, Catalog, Scheduling, Q&A WebSocket
+#   streaming-engine — Service 2: LiveKit token generation
+#   api-gateway      — Nginx: load balancer + API gateway (host port 80)
+#
+# Load balancing:
+#   docker compose up -d --scale core-api=3
+#   Nginx distributes requests across all core-api instances via least_conn.
+#   Redis Pub/Sub keeps Q&A broadcast in sync across all instances.
+#
+# Fault isolation demo:
+#   docker compose stop streaming-engine  →  Q&A still works
+#   docker compose stop core-api         →  (stops all instances)
+
+version: '3.8'
+
+services:
+
+  # ── Infrastructure ────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: globalclass
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Service 1: Core API + Q&A ─────────────────────────────────
+  # No host port binding — traffic comes through Nginx only.
+  # This allows: docker compose up -d --scale core-api=3
+  core-api:
+    build: ./backend
+    expose:
+      - "4000"
+    environment:
+      PORT: 4000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: globalclass
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_change_in_production}
+      JWT_EXPIRES_IN: 24h
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Service 2: Streaming Engine ───────────────────────────────
+  # No host port binding — traffic comes through Nginx only.
+  streaming-engine:
+    build: ./streaming-engine
+    expose:
+      - "4001"
+    environment:
+      PORT: 4001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: globalclass
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_change_in_production}
+      LIVEKIT_URL: ${LIVEKIT_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── API Gateway (Nginx) ───────────────────────────────────────
+  api-gateway:
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - core-api
+      - streaming-engine
+
+volumes:
+  postgres_data:
+  redis_data:

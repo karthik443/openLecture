@@ -1,11 +1,22 @@
 // Q&A WebSocket Handler
-// Observer Pattern: broadcasts ranked question updates to all clients in a lecture room
+// Observer Pattern: broadcasts ranked question updates to all clients in a lecture room.
+//
+// LOAD BALANCING DESIGN (Redis Pub/Sub):
+//   When the Core API is scaled to N instances (docker compose up --scale core-api=N),
+//   each instance manages its own in-memory WebSocket rooms. A question submitted to
+//   Instance 1 would never reach students connected to Instance 2 without a shared bus.
+//
+//   Solution: every state-mutating action publishes to a Redis channel (qa:broadcast:<lectureId>).
+//   Every instance subscribes to that channel and broadcasts to its *local* WebSocket clients.
+//   This way, all N instances stay in sync with zero direct coupling between them.
 
 import { WebSocketServer } from 'ws';
 import jwt from 'jsonwebtoken';
 import qaService from '../services/qaService.js';
+import { createRedisClient } from '../config/redis.js';
+import redis from '../config/redis.js';
 
-// lectureId -> Set of WebSocket clients
+// lectureId -> Set of WebSocket clients (local to this instance only)
 const rooms = new Map();
 
 // lectureId -> active ranking strategy ('default' | 'votes' | 'recency')
@@ -13,22 +24,87 @@ const roomStrategies = new Map();
 
 export const qaWss = new WebSocketServer({ noServer: true });
 
+// Dedicated Redis subscriber connection.
+// A subscribed Redis client cannot issue regular commands, so it must be separate
+// from the shared client used by qaService for data reads/writes.
+const subscriber = createRedisClient();
+
+// Track which lecture channels this instance is already subscribed to,
+// so we don't re-subscribe on every new client connection to the same lecture.
+const subscribedChannels = new Set();
+
+const pubChannel = (lectureId) => `qa:broadcast:${lectureId}`;
+
+// Subscribe this instance to a lecture channel (idempotent).
+async function ensureSubscribed(lectureId) {
+  const channel = pubChannel(lectureId);
+  if (subscribedChannels.has(channel)) return;
+
+  await subscriber.subscribe(channel, (message) => {
+    // Received a broadcast from any Core API instance (including ourselves).
+    // Relay it to every local WebSocket client in this room.
+    const room = rooms.get(lectureId);
+    room?.forEach((client) => {
+      if (client.readyState === 1) client.send(message);
+    });
+  });
+
+  subscribedChannels.add(channel);
+  console.log(`[WS] Subscribed to Redis channel: ${channel}`);
+}
+
+// Unsubscribe when the last local client leaves this lecture.
+async function maybeUnsubscribe(lectureId) {
+  const room = rooms.get(lectureId);
+  if (room && room.size > 0) return; // other local clients still connected
+  const channel = pubChannel(lectureId);
+  if (!subscribedChannels.has(channel)) return;
+  await subscriber.unsubscribe(channel);
+  subscribedChannels.delete(channel);
+  console.log(`[WS] Unsubscribed from Redis channel: ${channel}`);
+}
+
+// Fetch the current ranked question list and publish it to the Redis channel.
+// Every subscribed Core API instance will receive this and relay to its local clients.
+// Accepts an optional explicitStrategy so SET_STRATEGY broadcasts the new strategy
+// to all instances — they don't share in-memory roomStrategies.
+export async function broadcastQuestions(lectureId, explicitStrategy) {
+  const strategy = explicitStrategy || roomStrategies.get(lectureId) || 'default';
+  const questions = await qaService.getRankedQuestions(lectureId, strategy);
+  const payload = JSON.stringify({ type: 'QUESTIONS_UPDATE', questions, strategy });
+
+  const count = await redis.publish(pubChannel(lectureId), payload);
+  console.log(`[WS] Published QUESTIONS_UPDATE to channel ${pubChannel(lectureId)} (${count} subscribers)`);
+}
+
 export function initQAWebSocket() {
   qaWss.on('connection', async (ws, req) => {
-    const params = new URLSearchParams(req.url.replace('/ws/qa?', ''));
+    // Robust query string parsing unaffected by proxy route changes
+    const queryString = req.url.split('?')[1] || '';
+    const params = new URLSearchParams(queryString);
     const lectureId = params.get('lectureId');
     const token = params.get('token');
 
+    console.log(`[WS] Incoming connection. req.url: ${req.url}`);
+    console.log(`[WS] Parsed lectureId: '${lectureId}'`);
+
     try {
       ws.user = jwt.verify(token, process.env.JWT_SECRET);
-    } catch {
+      console.log(`[WS] User ${ws.user.id} (${ws.user.role}) connected to lecture ${lectureId}`);
+    } catch (err) {
+      console.log('[WS] Unauthorized connection rejected:', err.message);
       ws.close(4001, 'Unauthorized');
       return;
     }
 
+    // Register this client in the local room map
     if (!rooms.has(lectureId)) rooms.set(lectureId, new Set());
     rooms.get(lectureId).add(ws);
     ws.lectureId = lectureId;
+    console.log(`[WS] Room ${lectureId} now has ${rooms.get(lectureId).size} local clients`);
+
+    // Ensure this instance is subscribed to the Redis broadcast channel for this lecture
+    await ensureSubscribed(lectureId);
 
     // Push current state immediately so late joiners see existing questions
     try {
@@ -42,10 +118,12 @@ export function initQAWebSocket() {
     ws.on('message', async (raw) => {
       try {
         const msg = JSON.parse(raw);
+        console.log(`[WS] Received message from ${ws.user.role}:`, msg.type);
 
         if (msg.type === 'SUBMIT_QUESTION') {
+          console.log(`[WS] Submitting question for lecture ${lectureId}`);
           await qaService.submitQuestion(lectureId, ws.user.id, msg.content);
-          await broadcastQuestions(lectureId);
+          await broadcastQuestions(lectureId); // publishes to Redis → all instances
         }
 
         if (msg.type === 'VOTE') {
@@ -72,10 +150,15 @@ export function initQAWebSocket() {
             ws.send(JSON.stringify({ type: 'ERROR', message: 'Invalid strategy' }));
             return;
           }
+          // Update local strategy map, then broadcast with the new strategy explicitly.
+          // Other instances receive the payload (which includes the strategy field) and
+          // relay it as-is — they don't need to update their own roomStrategies map
+          // because the strategy is embedded in every broadcast payload.
           roomStrategies.set(lectureId, msg.strategy);
-          await broadcastQuestions(lectureId);
+          await broadcastQuestions(lectureId, msg.strategy);
         }
       } catch (err) {
+        console.error('[Q&A WebSocket Message Error]:', err);
         ws.send(JSON.stringify({ type: 'ERROR', message: err.message }));
       }
     });
@@ -83,11 +166,11 @@ export function initQAWebSocket() {
     ws.on('close', async () => {
       const room = rooms.get(lectureId);
       room?.delete(ws);
-      // When last client leaves, do a final flush and clean up Redis buffer
       if (room?.size === 0) {
         rooms.delete(lectureId);
         roomStrategies.delete(lectureId);
         await qaService.finalFlushAndClean(lectureId);
+        await maybeUnsubscribe(lectureId);
       }
     });
   });
@@ -99,14 +182,5 @@ export function initQAWebSocket() {
     }
   }, 5000);
 
-  console.log('Q&A WebSocket initialized at /ws/qa');
-}
-
-export async function broadcastQuestions(lectureId) {
-  const strategy = roomStrategies.get(lectureId) || 'default';
-  const questions = await qaService.getRankedQuestions(lectureId, strategy);
-  const payload = JSON.stringify({ type: 'QUESTIONS_UPDATE', questions, strategy });
-  rooms.get(lectureId)?.forEach((client) => {
-    if (client.readyState === 1) client.send(payload);
-  });
+  console.log('[WS] Q&A WebSocket initialized with Redis Pub/Sub broadcast');
 }

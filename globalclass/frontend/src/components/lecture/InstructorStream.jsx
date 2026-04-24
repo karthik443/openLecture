@@ -1,100 +1,123 @@
-// Instructor Stream (Broadcast view) — owned by: Team (streaming)
-// Captures local camera/mic, sends via WebRTC to all students
+// Instructor Stream — Powered by LiveKit SFU
+// Flow: Instructor clicks "Start Streaming" → API call to streaming-engine
+//       → receives a LiveKit publisher token → LiveKit SDK handles all WebRTC
+//       → students receive the stream directly from LiveKit's SFU
 
-import React, { useRef, useEffect } from 'react';
-import { useWebRTC } from '../../hooks/useWebRTC';
+import React, { useState, useCallback } from 'react';
+import {
+  LiveKitRoom,
+  VideoConference,
+} from '@livekit/components-react';
+import '@livekit/components-styles';
+import api from '../../services/api';
 
-export default function InstructorStream({ lectureId, token }) {
-  const videoRef = useRef(null);
-  const {
-    localStream,
-    viewerCount,
-    connectionState,
-    startStreaming,
-    stopStreaming,
-  } = useWebRTC(lectureId, token, 'instructor');
+export default function InstructorStream({ lectureId, token: _authToken }) {
+  const [session, setSession] = useState(null); // { livekitToken, livekitUrl }
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  // Attach local stream to video element
-  useEffect(() => {
-    if (videoRef.current && localStream) {
-      videoRef.current.srcObject = localStream;
+  const startStreaming = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const { data } = await api.post(`/stream/start/${lectureId}`);
+      setSession(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to start stream. Check LiveKit config.');
+    } finally {
+      setLoading(false);
     }
-  }, [localStream]);
+  }, [lectureId]);
 
-  const isStreaming = connectionState === 'streaming';
+  const stopStreaming = useCallback(async () => {
+    try {
+      await api.post(`/stream/end/${lectureId}`);
+    } catch {/* ignore */} finally {
+      setSession(null);
+    }
+  }, [lectureId]);
 
+  // ── Pre-stream state ──
+  if (!session) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <h3 style={styles.title}>Your Stream (Instructor)</h3>
+          <span style={{ ...styles.statusDot, background: '#ccc' }} />
+        </div>
+
+        {/* Placeholder preview */}
+        <div style={styles.preview}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🎥</div>
+          <p style={{ color: '#aaa', fontSize: 14 }}>
+            Click start to go live. LiveKit SFU routes your stream to all students.
+          </p>
+        </div>
+
+        {error && <p style={styles.error}>{error}</p>}
+
+        <div style={{ marginTop: 12 }}>
+          <button onClick={startStreaming} disabled={loading} style={styles.startBtn}>
+            {loading ? 'Connecting to SFU...' : '🎥 Start Streaming'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Live state — inside LiveKit room ──
   return (
-    <div>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        alignItems: 'center', marginBottom: 12,
-      }}>
-        <h3 style={{ margin: 0 }}>Your Stream (Instructor)</h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Viewer count badge */}
-          {isStreaming && (
-            <span style={{
-              background: '#2a9d8f22', color: '#2a9d8f',
-              padding: '4px 12px', borderRadius: 12,
-              fontSize: 13, fontWeight: 600,
-            }}>
-              👁 {viewerCount} viewer{viewerCount !== 1 ? 's' : ''}
-            </span>
-          )}
-
-          {/* Connection status */}
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            fontSize: 13, color: isStreaming ? '#2a9d8f' : '#888',
-          }}>
-            <span style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: isStreaming ? '#2a9d8f' : '#ccc',
-              display: 'inline-block',
-            }} />
-            {isStreaming ? 'LIVE' : connectionState}
-          </span>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <h3 style={styles.title}>Your Stream</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ ...styles.statusDot, background: '#2a9d8f' }} />
+          <span style={{ color: '#2a9d8f', fontSize: 13, fontWeight: 600 }}>LIVE via SFU</span>
+          <button onClick={stopStreaming} style={styles.stopBtn}>⏹ End Stream</button>
         </div>
       </div>
 
-      {/* Video preview */}
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        style={{
-          width: '100%', background: '#111',
-          aspectRatio: '16/9', borderRadius: 8,
-        }}
-      />
-
-      {/* Controls */}
-      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-        {!isStreaming ? (
-          <button
-            onClick={startStreaming}
-            style={{
-              padding: '10px 24px', background: '#2a9d8f',
-              color: '#fff', border: 'none', borderRadius: 6,
-              cursor: 'pointer', fontSize: 14, fontWeight: 600,
-            }}
-          >
-            🎥 Start Streaming
-          </button>
-        ) : (
-          <button
-            onClick={stopStreaming}
-            style={{
-              padding: '10px 24px', background: '#e63946',
-              color: '#fff', border: 'none', borderRadius: 6,
-              cursor: 'pointer', fontSize: 14, fontWeight: 600,
-            }}
-          >
-            ⏹ Stop Streaming
-          </button>
-        )}
+      {/* LiveKit room — SFU handles all WebRTC for us */}
+      <div style={{ height: 420, borderRadius: 8, overflow: 'hidden' }}>
+        <LiveKitRoom
+          token={session.livekitToken}
+          serverUrl={session.livekitUrl}
+          video={true}
+          audio={true}
+          onDisconnected={() => setSession(null)}
+          style={{ height: '100%' }}
+        >
+          <VideoConference />
+        </LiveKitRoom>
       </div>
     </div>
   );
 }
+
+const styles = {
+  container: { display: 'flex', flexDirection: 'column' },
+  header: {
+    display: 'flex', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 12,
+  },
+  title: { margin: 0, fontSize: 16, fontWeight: 600 },
+  statusDot: {
+    width: 10, height: 10, borderRadius: '50%', display: 'inline-block',
+  },
+  preview: {
+    width: '100%', aspectRatio: '16/9', background: '#111',
+    borderRadius: 8, display: 'flex', flexDirection: 'column',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  startBtn: {
+    padding: '10px 24px', background: '#2a9d8f', color: '#fff',
+    border: 'none', borderRadius: 6, cursor: 'pointer',
+    fontSize: 14, fontWeight: 600,
+  },
+  stopBtn: {
+    padding: '6px 14px', background: '#e63946', color: '#fff',
+    border: 'none', borderRadius: 6, cursor: 'pointer',
+    fontSize: 13, fontWeight: 600,
+  },
+  error: { color: '#e63946', fontSize: 13, margin: '8px 0 0' },
+};

@@ -5,15 +5,6 @@ import CreateLectureModal from '../components/lecture/CreateLectureModal';
 
 const STATUS_COLORS = { scheduled: '#f4a261', live: '#2a9d8f', ended: '#aaa' };
 
-async function enroll(lectureId) {
-  try {
-    await api.post(`/lectures/${lectureId}/enroll`);
-    alert('Enrolled successfully!');
-  } catch (err) {
-    alert(err.response?.data?.error || 'Enrollment failed');
-  }
-}
-
 export default function CourseCatalog() {
   const [lectures, setLectures] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -24,13 +15,26 @@ export default function CourseCatalog() {
     api.get('/lectures').then(r => setLectures(r.data));
   }, []);
 
+  async function enroll(lectureId) {
+    try {
+      await api.post(`/lectures/${lectureId}/enroll`);
+      alert('Enrolled successfully!');
+      setLectures(prev => prev.map(l => l.id === lectureId ? { ...l, is_enrolled: true } : l));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Enrollment failed');
+    }
+  }
+
   async function goLive(lectureId) {
     await api.patch(`/lectures/${lectureId}/status`, { status: 'live' });
     setLectures(prev => prev.map(l => l.id === lectureId ? { ...l, status: 'live' } : l));
   }
 
   async function endLecture(lectureId) {
+    // Update lecture status in core-api
     await api.patch(`/lectures/${lectureId}/status`, { status: 'ended' });
+    // Tell streaming-engine to close the LiveKit room (best effort)
+    try { await api.post(`/stream/end/${lectureId}`); } catch { /* ignore */ }
     setLectures(prev => prev.map(l => l.id === lectureId ? { ...l, status: 'ended' } : l));
   }
 
@@ -89,10 +93,13 @@ export default function CourseCatalog() {
           </p>
 
           <div style={{ display: 'flex', gap: 8 }}>
-            {user.role === 'student' && l.status !== 'ended' && (
+            {user.role === 'student' && l.status !== 'ended' && !l.is_enrolled && (
               <button onClick={() => enroll(l.id)} style={btnStyle('#457b9d')}>Enroll</button>
             )}
-            {l.status === 'live' && (
+            {user.role === 'student' && l.is_enrolled && l.status !== 'live' && l.status !== 'ended' && (
+              <span style={{ padding: '6px 14px', background: '#e0e0e0', color: '#555', borderRadius: 4, fontSize: 13, border: 'none' }}>Enrolled</span>
+            )}
+            {l.status === 'live' && (user.role === 'instructor' || l.is_enrolled) && (
               <button onClick={() => navigate(`/lecture/${l.id}`)} style={btnStyle('#2a9d8f')}>Join Live</button>
             )}
             {user.role === 'instructor' && l.status === 'scheduled' && (

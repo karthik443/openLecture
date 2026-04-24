@@ -8,9 +8,11 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT l.*, u.name AS instructor_name, u.institution
+      `SELECT l.*, u.name AS instructor_name, u.institution,
+       EXISTS(SELECT 1 FROM enrollments e WHERE e.lecture_id = l.id AND e.student_id = $1) AS is_enrolled
        FROM lectures l JOIN users u ON l.instructor_id = u.id
-       ORDER BY l.scheduled_at DESC`
+       ORDER BY l.scheduled_at DESC`,
+       [req.user.id]
     );
     res.json(result.rows);
   } catch (err) {

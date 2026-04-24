@@ -20,7 +20,11 @@ export function useQAWebSocket(lectureId, token, onMessage) {
   const connect = useCallback(() => {
     if (!lectureId || !token || !isMounted.current) return;
 
-    const url = `ws://localhost:4000/ws/qa?lectureId=${lectureId}&token=${token}`;
+    // Use the current host so this works in dev (port 4000 direct or via
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const targetHost = process.env.NODE_ENV === 'development' ? 'localhost:4000' : window.location.host;
+    const url = `${protocol}//${targetHost}/qaws?lectureId=${lectureId}&token=${token}`;
+    
     const socket = new WebSocket(url);
     ws.current = socket;
 

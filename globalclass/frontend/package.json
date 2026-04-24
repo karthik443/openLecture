@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@livekit/components-react": "^2.6.0",
+    "@livekit/components-styles": "^1.1.0",
     "axios": "^1.4.0",
+    "livekit-client": "^2.7.0",
     "prop-types": "^15.8.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -14,7 +17,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build"
   },
-  "proxy": "http://localhost:4000",
+
   "browserslist": {
     "production": [
       ">0.2%",

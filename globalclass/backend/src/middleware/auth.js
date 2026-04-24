@@ -16,7 +16,12 @@ export function authenticate(req, res, next) {
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return res.status(403).json({
+        error: 'Forbidden',
+        required: roles,
+        actual: req.user.role,
+        hint: 'Your session token carries a different role. Please log out and log back in.',
+      });
     }
     next();
   };

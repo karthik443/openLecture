@@ -19,12 +19,14 @@ export async function startSession(lectureId, instructorId) {
 }
 
 export async function joinSession(lectureId, studentId) {
-  // Verify lecture is live
+  // Verify lecture is live and student is enrolled
   const result = await pool.query(
-    `SELECT * FROM lectures WHERE id = $1 AND status = 'live'`,
-    [lectureId]
+    `SELECT l.* FROM lectures l
+     JOIN enrollments e ON e.lecture_id = l.id
+     WHERE l.id = $1 AND l.status = 'live' AND e.student_id = $2`,
+    [lectureId, studentId]
   );
-  if (!result.rows[0]) throw new Error('Lecture is not live');
+  if (!result.rows[0]) throw new Error('Lecture is not live or you are not enrolled');
 
   return {
     lectureId,

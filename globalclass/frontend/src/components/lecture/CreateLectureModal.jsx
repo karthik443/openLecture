@@ -19,7 +19,11 @@ export default function CreateLectureModal({ onClose, onCreated }) {
       onCreated(data);
       onClose();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create lecture');
+      const data = err.response?.data;
+      const msg = data?.hint
+        ? `${data.error} — ${data.hint} (token role: "${data.actual}")`
+        : data?.error || 'Failed to create lecture';
+      setError(msg);
     } finally {
       setLoading(false);
     }
