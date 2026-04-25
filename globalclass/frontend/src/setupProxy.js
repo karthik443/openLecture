@@ -19,7 +19,7 @@ module.exports = function (app) {
   app.use(
     '/api/stream',
     createProxyMiddleware({
-      target: 'http://localhost:80',
+      target: 'http://127.0.0.1:80',
       changeOrigin: true,
     })
   );
@@ -29,7 +29,7 @@ module.exports = function (app) {
   app.use(
     '/api',
     createProxyMiddleware({
-      target: 'http://localhost:80',
+      target: 'http://127.0.0.1:80',
       changeOrigin: true,
     })
   );
@@ -38,7 +38,7 @@ module.exports = function (app) {
   app.use(
     '/qaws',
     createProxyMiddleware({
-      target: 'http://localhost:80',
+      target: 'http://127.0.0.1:80',
       changeOrigin: true,
       ws: true, // proxy WebSocket upgrades
     })
