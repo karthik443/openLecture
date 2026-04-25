@@ -137,3 +137,9 @@ npm start               # starts on port 3000
 | Aayush | Q&A system (qaService, qaHandler, QuestionList, QuestionInput, InstructorQAView, rankingStrategy) |
 | Team   | Video streaming (streamService, streamHandler, VideoPlayer, InstructorStream, useWebRTC) |
 | Shared | Auth, lecture CRUD, DB schema, Docker setup |
+
+
+
+# RUN LOAD TEST 
+ docker run --rm -i --network globalclass_default -v $(pwd)/load_test.js:/load_test.js grafana/k6 run /load_test.js  2>&1
+
