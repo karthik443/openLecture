@@ -20,9 +20,12 @@ export function useQAWebSocket(lectureId, token, onMessage) {
   const connect = useCallback(() => {
     if (!lectureId || !token || !isMounted.current) return;
 
-    // Use the current host so this works in dev (port 4000 direct or via
+    // In development mode, the CRA proxy (setupProxy.js) often fails to proxy
+    // WebSocket upgrade events properly. Since we have our Nginx API Gateway 
+    // running locally on port 80, we can bypass the dev server and connect 
+    // to Nginx directly. In production, we use the current host.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const targetHost = process.env.NODE_ENV === 'development' ? 'localhost:4000' : window.location.host;
+    const targetHost = process.env.NODE_ENV === 'development' ? 'localhost:80' : window.location.host;
     const url = `${protocol}//${targetHost}/qaws?lectureId=${lectureId}&token=${token}`;
     
     const socket = new WebSocket(url);
