@@ -3,18 +3,18 @@
 # Services:
 #   postgres         — Shared database (lecture schema, users, Q&A)
 #   redis            — Q&A write buffer + Pub/Sub broadcast bus
+#   minio            — Local S3-compatible storage for HLS segments (CDN origin)
 #   core-api         — Service 1: Auth, Catalog, Scheduling, Q&A WebSocket
-#   streaming-engine — Service 2: LiveKit token generation
-#   api-gateway      — Nginx: load balancer + API gateway (host port 80)
+#   streaming-engine — Service 2: LiveKit token generation + HLS egress management
+#   api-gateway      — Nginx: load balancer + API gateway + HLS segment proxy (port 80)
 #
 # Load balancing:
-#   docker compose up -d --scale core-api=3
-#   Nginx distributes requests across all core-api instances via least_conn.
-#   Redis Pub/Sub keeps Q&A broadcast in sync across all instances.
+#   docker compose up -d --scale core-api=3 --scale streaming-engine=3
+#   Nginx distributes requests across all instances via least_conn.
+#   Redis Pub/Sub keeps Q&A broadcast in sync across all core-api instances.
 #
 # Fault isolation demo:
 #   docker compose stop streaming-engine  →  Q&A still works
-#   docker compose stop core-api         →  (stops all instances)
 
 version: '3.8'
 
@@ -48,6 +48,29 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # ── MinIO (local S3-compatible storage for HLS segments) ──────────
+  # Acts as the CDN origin: LiveKit Egress writes HLS segments here,
+  # Nginx serves them to bulk-tier viewers via /hls/* → minio:9000.
+  # In production this would be a real S3 bucket + CloudFront CDN.
+  # Web console (view segments): http://localhost:9001 (admin/minioadmin)
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # ── Service 1: Core API + Q&A ─────────────────────────────────
   # No host port binding — traffic comes through Nginx only.
@@ -90,8 +113,17 @@ services:
       LIVEKIT_URL: ${LIVEKIT_URL}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      # ADR-001: WebRTC priority tier limit. First N viewers get WebRTC (<1s latency);
+      # viewers beyond this threshold get LL-HLS (~2-3s latency) via MinIO/CDN.
+      # Set to 1 to demonstrate tier switching during a demo with 2 users.
+      WEBRTC_PRIORITY_LIMIT: ${WEBRTC_PRIORITY_LIMIT:-500}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   # ── API Gateway (Nginx) ───────────────────────────────────────
@@ -108,3 +140,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  minio_data:
