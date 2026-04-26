@@ -13,6 +13,7 @@
 *List the core features (Auth, Course Management, Q&A, Live Streaming).*
 *   **FR1:** User Authentication & Role-Based Access Control.
 *   **FR2:** Live Lecture Streaming (WebRTC/LL-HLS).
+
 *   **FR3:** Real-time Ranked Q&A System.
 *   **Architectural Significance:** Explain how these drive the microservices choice (e.g., streaming and Q&A have different scaling needs).
 
