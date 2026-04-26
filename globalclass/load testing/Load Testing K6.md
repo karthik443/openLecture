@@ -2,14 +2,6 @@
 
 > **Date:** 2026-04-26  
 > **Test Tool:** Grafana k6 (Docker)  
-> **Environment:** Docker Compose on local machine (7.58 GiB RAM)  
-> **Target:** Nginx API Gateway → Microservices → PostgreSQL / LiveKit / MinIO
-
----
-
-## 1. System Architecture Under Test
-
-```
 ┌──────────────────────────────────────────────────────────────┐
 │                 Docker Network: globalclass_default           │
 │                                                              │
